@@ -10,8 +10,14 @@
 
 import type * as auth from "../auth.js";
 import type * as auth_emailOtp from "../auth/emailOtp.js";
+import type * as bookmarks from "../bookmarks.js";
+import type * as books from "../books.js";
+import type * as chapters from "../chapters.js";
+import type * as generate from "../generate.js";
+import type * as generation from "../generation.js";
 import type * as http from "../http.js";
 import type * as users from "../users.js";
+import type * as voices from "../voices.js";
 
 import type {
   ApiFromModules,
@@ -22,8 +28,14 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   "auth/emailOtp": typeof auth_emailOtp;
+  bookmarks: typeof bookmarks;
+  books: typeof books;
+  chapters: typeof chapters;
+  generate: typeof generate;
+  generation: typeof generation;
   http: typeof http;
   users: typeof users;
+  voices: typeof voices;
 }>;
 
 /**
