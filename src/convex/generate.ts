@@ -1,7 +1,7 @@
 "use node";
 
 import { v } from "convex/values";
-import { action, internalAction, internalMutation } from "./_generated/server";
+import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 
@@ -202,7 +202,7 @@ export const generateRemainingChapters = action({
     if (!book.voiceId || !book.ttsProvider) return;
 
     const pendingChapters = await ctx.runQuery(api.chapters.listByBook, { bookId: args.bookId });
-    const pendingOnes = pendingChapters.filter((c: any) => c.generationStatus === "pending" || c.generationStatus === "error");
+    const pendingOnes = pendingChapters.filter((c) => c.generationStatus === "pending" || c.generationStatus === "error");
 
     for (const chapter of pendingOnes) {
       await ctx.runMutation(internal.chapters.setGenerating, { chapterId: chapter._id });

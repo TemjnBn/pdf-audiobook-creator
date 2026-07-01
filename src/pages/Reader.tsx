@@ -514,7 +514,7 @@ export default function Reader() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const book = useQuery(api.books.getByIdPublic, { bookId: bookId as Id<"books"> });
   const chapters = useQuery(api.chapters.listByBook, { bookId: bookId as Id<"books"> });
-  const updateProgress = useMutation(api.books.updateProgress);
+  const bookSettings = useMutation(api.books.updateSettings);
 
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -525,7 +525,6 @@ export default function Reader() {
   const [showSettings, setShowSettings] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const isPlayingRef = useRef(false);
 
   const currentChapter = chapters?.[currentChapterIndex];
   const audioUrl = useQuery(
@@ -556,29 +555,25 @@ export default function Reader() {
     if (audio.paused) {
       audio.play().catch(() => {});
       setIsPlaying(true);
-      isPlayingRef.current = true;
     } else {
       audio.pause();
       setIsPlaying(false);
-      isPlayingRef.current = false;
     }
   }, []);
 
   const handleSkipForward = useCallback(() => {
     if (chapters && currentChapterIndex < chapters.length - 1) {
-      setCurrentChapterIndex((prev) => prev + 1);
+      setCurrentChapterIndex(currentChapterIndex + 1);
       setCurrentTime(0);
       setIsPlaying(false);
-      isPlayingRef.current = false;
     }
   }, [chapters, currentChapterIndex]);
 
   const handleSkipBack = useCallback(() => {
-    setCurrentChapterIndex((prev) => Math.max(0, prev - 1));
+    setCurrentChapterIndex(currentChapterIndex - 1);
     setCurrentTime(0);
     setIsPlaying(false);
-    isPlayingRef.current = false;
-  }, []);
+  }, [currentChapterIndex]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -713,9 +708,8 @@ export default function Reader() {
                   }}
                   onEnded={() => {
                     setIsPlaying(false);
-                    isPlayingRef.current = false;
                     if (chapters && currentChapterIndex < chapters.length - 1) {
-                      setCurrentChapterIndex((prev) => prev + 1);
+                      setCurrentChapterIndex(currentChapterIndex + 1);
                       setCurrentTime(0);
                     }
                   }}
