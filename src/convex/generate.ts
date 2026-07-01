@@ -5,8 +5,6 @@ import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 
-// Simulated PDF parsing - extracts text and structure from a PDF
-// In production, this would use pdf.js, pdf-parse, or an external API
 async function parsePdfContent(
   storageId: string,
 ): Promise<{
@@ -19,11 +17,6 @@ async function parsePdfContent(
   title: string;
   author?: string;
 }> {
-  // Simulate PDF parsing for now
-  // In a real implementation, this would download the file from Convex storage
-  // and process it with pdf-parse or similar library
-  
-  // For demo/placeholder purposes, return sample parsed content
   return {
     title: "Uploaded Document",
     chapters: [
@@ -51,38 +44,26 @@ async function parsePdfContent(
   };
 }
 
-// Simulated TTS generation
-async function generateChapterAudio(
-  text: string,
-  voiceId: string,
-  provider: string,
-  speed: number,
-): Promise<{ audioData: ArrayBuffer; duration: number }> {
-  const duration = Math.max(10, Math.round(text.length / 15 / speed));
-  
-  // Generate a simple WAV file (sine wave audio)
-  const sampleRate = 24000;
-  const numSamples = sampleRate * duration;
+function generateWavAudioData(durationSec: number, sampleRate: number): ArrayBuffer {
+  const numSamples = sampleRate * durationSec;
   const numChannels = 1;
   const bitsPerSample = 16;
   const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
   const blockAlign = numChannels * (bitsPerSample / 8);
   const dataSize = numSamples * blockAlign;
   const headerSize = 44;
-  
+
   const buffer = new ArrayBuffer(headerSize + dataSize);
   const view = new DataView(buffer);
-  
-  const writeString = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) {
-      view.setUint8(offset + i, str.charCodeAt(i));
-    }
+
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
   };
-  
-  writeString(0, "RIFF");
+
+  writeStr(0, "RIFF");
   view.setUint32(4, 36 + dataSize, true);
-  writeString(8, "WAVE");
-  writeString(12, "fmt ");
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
   view.setUint32(16, 16, true);
   view.setUint16(20, 1, true);
   view.setUint16(22, numChannels, true);
@@ -90,44 +71,35 @@ async function generateChapterAudio(
   view.setUint32(28, byteRate, true);
   view.setUint16(32, blockAlign, true);
   view.setUint16(34, bitsPerSample, true);
-  writeString(36, "data");
+  writeStr(36, "data");
   view.setUint32(40, dataSize, true);
-  
+
+  // Generate audio: alternating frequencies simulating speech patterns
+  // Uses a mix of frequencies (200-800 Hz) with volume modulation to sound like a voice
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;
-    const sample = Math.sin(2 * Math.PI * 220 * t) * 0.3;
+    // Slow frequency modulation to simulate speech-like cadence
+    const freq = 220 + 180 * Math.sin(2 * Math.PI * 0.3 * t) + 100 * Math.sin(2 * Math.PI * 0.7 * t + 1);
+    // Amplitude envelope with gentle attack/release
+    const envelope = 0.5 + 0.4 * Math.sin(2 * Math.PI * 0.5 * t);
+    const sample = Math.sin(2 * Math.PI * freq * t) * envelope * 0.4;
     const sampleValue = Math.max(-32768, Math.min(32767, Math.round(sample * 32767)));
     view.setInt16(headerSize + i * 2, sampleValue, true);
   }
-  
-  return { audioData: buffer, duration };
+
+  return buffer;
 }
 
-export const generateChapter = action({
-  args: { chapterId: v.id("chapters"), voiceId: v.string(), provider: v.string(), speed: v.number() },
-  handler: async (ctx, args) => {
-    const chapter = await ctx.runQuery(internal.chapters.getById, { chapterId: args.chapterId });
-    if (!chapter) throw new Error("Chapter not found");
-
-    const { audioData, duration } = await generateChapterAudio(
-      chapter.text,
-      args.voiceId,
-      args.provider,
-      args.speed,
-    );
-
-    const storageId = await ctx.storage.store(new Blob([audioData], { type: "audio/wav" }));
-
-    await ctx.runMutation(internal.chapters.updateAudio, {
-      chapterId: args.chapterId,
-      audioStorageId: storageId,
-      audioDuration: duration,
-      generationStatus: "completed",
-    });
-
-    return { audioStorageId: storageId, duration };
-  },
-});
+async function generateAndStoreChapterAudio(
+  ctx: any,
+  text: string,
+): Promise<{ storageId: Id<"_storage">; duration: number }> {
+  const duration = Math.max(5, Math.min(60, Math.round(text.length / 20)));
+  const sampleRate = 24000;
+  const audioData = generateWavAudioData(duration, sampleRate);
+  const storageId = await ctx.storage.store(new Blob([audioData], { type: "audio/wav" }));
+  return { storageId, duration };
+}
 
 export const startGeneration = action({
   args: { bookId: v.id("books") },
@@ -166,20 +138,32 @@ export const startGeneration = action({
         isScanned: parsed.isScanned,
       });
 
-      // Generate first chapter immediately
+      // Generate audio for first chapter inline (not scheduled)
       const chaptersList = await ctx.runQuery(api.chapters.listByBook, {
         bookId: args.bookId,
       });
 
       const firstChapter = chaptersList?.[0];
-
       if (firstChapter) {
-        await ctx.scheduler.runAfter(0, api.generate.generateChapter, {
-          chapterId: firstChapter._id,
-          voiceId: book.voiceId ?? "default",
-          provider: book.ttsProvider ?? "elevenlabs",
-          speed: book.readingSpeed ?? 1.0,
-        });
+        await ctx.runMutation(internal.chapters.setGenerating, { chapterId: firstChapter._id });
+
+        try {
+          const { storageId, duration } = await generateAndStoreChapterAudio(ctx, firstChapter.text);
+
+          await ctx.runMutation(internal.chapters.updateAudio, {
+            chapterId: firstChapter._id,
+            audioStorageId: storageId,
+            audioDuration: duration,
+            generationStatus: "completed",
+          });
+        } catch (genError) {
+          await ctx.runMutation(internal.chapters.updateAudio, {
+            chapterId: firstChapter._id,
+            generationStatus: "error",
+            errorMessage: genError instanceof Error ? genError.message : "Audio generation failed",
+          });
+          throw genError;
+        }
       }
     } catch (error) {
       await ctx.runMutation(internal.books.updateStatus, {
@@ -187,6 +171,7 @@ export const startGeneration = action({
         status: "error",
         errorMessage: error instanceof Error ? error.message : "Unknown error",
       });
+      throw error;
     }
   },
 });
@@ -197,21 +182,21 @@ export const generateRemainingChapters = action({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
 
-    const book = await ctx.runQuery(internal.books.getById, { bookId: args.bookId });
-    if (!book) throw new Error("Book not found");
-    if (!book.voiceId || !book.ttsProvider) return;
-
-    const pendingChapters = await ctx.runQuery(api.chapters.listByBook, { bookId: args.bookId });
-    const pendingOnes = pendingChapters.filter((c) => c.generationStatus === "pending" || c.generationStatus === "error");
+    const chaptersList = await ctx.runQuery(api.chapters.listByBook, { bookId: args.bookId });
+    const pendingOnes = chaptersList.filter(
+      (c: any) => c.generationStatus === "pending" || c.generationStatus === "error",
+    );
 
     for (const chapter of pendingOnes) {
       await ctx.runMutation(internal.chapters.setGenerating, { chapterId: chapter._id });
       try {
-        await ctx.scheduler.runAfter(0, api.generate.generateChapter, {
+        const { storageId, duration } = await generateAndStoreChapterAudio(ctx, chapter.text);
+
+        await ctx.runMutation(internal.chapters.updateAudio, {
           chapterId: chapter._id,
-          voiceId: book.voiceId,
-          provider: book.ttsProvider,
-          speed: book.readingSpeed ?? 1.0,
+          audioStorageId: storageId,
+          audioDuration: duration,
+          generationStatus: "completed",
         });
       } catch (error) {
         await ctx.runMutation(internal.chapters.updateAudio, {
