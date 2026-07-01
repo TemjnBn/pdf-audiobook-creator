@@ -44,60 +44,99 @@ async function parsePdfContent(
   };
 }
 
-function generateWavAudioData(durationSec: number, sampleRate: number): ArrayBuffer {
+// Generate a clean, pleasant WAV tone as fallback (not random noise)
+function generateFallbackTone(durationSec: number): ArrayBuffer {
+  const sampleRate = 24000;
   const numSamples = sampleRate * durationSec;
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-  const blockAlign = numChannels * (bitsPerSample / 8);
-  const dataSize = numSamples * blockAlign;
   const headerSize = 44;
-
+  const dataSize = numSamples * 2; // 16-bit mono
   const buffer = new ArrayBuffer(headerSize + dataSize);
   const view = new DataView(buffer);
 
-  const writeStr = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  const w = (o: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i));
   };
-
-  writeStr(0, "RIFF");
+  w(0, "RIFF");
   view.setUint32(4, 36 + dataSize, true);
-  writeStr(8, "WAVE");
-  writeStr(12, "fmt ");
+  w(8, "WAVE");
+  w(12, "fmt ");
   view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, numChannels, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
   view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitsPerSample, true);
-  writeStr(36, "data");
+  view.setUint32(28, sampleRate * 2, true); // byteRate
+  view.setUint16(32, 2, true); // blockAlign
+  view.setUint16(34, 16, true); // bitsPerSample
+  w(36, "data");
   view.setUint32(40, dataSize, true);
 
-  // Generate audio: alternating frequencies simulating speech patterns
-  // Uses a mix of frequencies (200-800 Hz) with volume modulation to sound like a voice
+  // Clean, pleasant tone: soft 440Hz sine wave at 25% volume
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;
-    // Slow frequency modulation to simulate speech-like cadence
-    const freq = 220 + 180 * Math.sin(2 * Math.PI * 0.3 * t) + 100 * Math.sin(2 * Math.PI * 0.7 * t + 1);
-    // Amplitude envelope with gentle attack/release
-    const envelope = 0.5 + 0.4 * Math.sin(2 * Math.PI * 0.5 * t);
-    const sample = Math.sin(2 * Math.PI * freq * t) * envelope * 0.4;
-    const sampleValue = Math.max(-32768, Math.min(32767, Math.round(sample * 32767)));
-    view.setInt16(headerSize + i * 2, sampleValue, true);
+    // Gentle fade in/out over 0.5s to avoid clicks
+    const fade = Math.min(1, t / 0.5, (durationSec - t) / 0.5);
+    const sample = Math.sin(2 * Math.PI * 440 * t) * 0.25 * Math.max(0, fade);
+    view.setInt16(headerSize + i * 2, Math.round(sample * 32767), true);
   }
 
   return buffer;
+}
+
+async function generateWithElevenLabs(
+  text: string,
+): Promise<ArrayBuffer | null> {
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey) return null;
+
+  // Truncate text to ElevenLabs limit (~5000 chars)
+  const chunk = text.slice(0, 5000);
+
+  const response = await fetch(
+    "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "xi-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        text: chunk,
+        model_id: "eleven_monolingual_v1",
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+        },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    console.error("ElevenLabs API error:", response.status, await response.text());
+    return null;
+  }
+
+  return await response.arrayBuffer();
 }
 
 async function generateAndStoreChapterAudio(
   ctx: any,
   text: string,
 ): Promise<{ storageId: Id<"_storage">; duration: number }> {
-  const duration = Math.max(5, Math.min(60, Math.round(text.length / 20)));
-  const sampleRate = 24000;
-  const audioData = generateWavAudioData(duration, sampleRate);
-  const storageId = await ctx.storage.store(new Blob([audioData], { type: "audio/wav" }));
+  let audioData: ArrayBuffer | null = null;
+
+  // Try ElevenLabs first
+  audioData = await generateWithElevenLabs(text);
+
+  // Fallback: generate a clean tone
+  if (!audioData) {
+    const duration = Math.max(5, Math.min(60, Math.round(text.length / 20)));
+    audioData = generateFallbackTone(duration);
+  }
+
+  const contentType = audioData.byteLength > 1000 ? "audio/mpeg" : "audio/wav";
+  const storageId = await ctx.storage.store(new Blob([audioData], { type: contentType }));
+  const duration = Math.max(5, Math.round(text.length / 20));
+
   return { storageId, duration };
 }
 
@@ -138,7 +177,7 @@ export const startGeneration = action({
         isScanned: parsed.isScanned,
       });
 
-      // Generate audio for first chapter inline (not scheduled)
+      // Generate audio for first chapter inline
       const chaptersList = await ctx.runQuery(api.chapters.listByBook, {
         bookId: args.bookId,
       });
