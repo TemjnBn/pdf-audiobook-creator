@@ -2,11 +2,13 @@ import { v } from "convex/values";
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { Doc } from "./_generated/dataModel";
 
+import { getAuthUserId } from "@convex-dev/auth/server";
+
 export const listByBook = query({
   args: { bookId: v.id("books") },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
 
     return await ctx.db
       .query("chapters")
@@ -19,8 +21,8 @@ export const listByBook = query({
 export const getByBookAndNumber = query({
   args: { bookId: v.id("books"), chapterNumber: v.number() },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
 
     return await ctx.db
       .query("chapters")
