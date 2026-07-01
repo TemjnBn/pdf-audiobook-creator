@@ -8,7 +8,7 @@ const fadeInUp = {
   initial: { opacity: 0, y: 24 },
   whileInView: { opacity: 1, y: 0 },
   viewport: { once: true, margin: "-80px" },
-  transition: { duration: 0.6, ease: [0.25, 0.1, 0, 1] },
+  transition: { duration: 0.6, ease: [0.25, 0.1, 0, 1] as const },
 };
 
 const stagger = {
@@ -177,7 +177,7 @@ export default function Landing() {
               >
                 <div className="p-6 rounded-xl border bg-card hover:bg-muted/30 transition-colors">
                   <div className="w-10 h-10 rounded-lg bg-foreground/[0.04] border flex items-center justify-center mb-4">
-                    <feature.icon className="w-4.5 h-4.5 text-foreground/70" />
+                    <feature.icon className="w-4 h-4 text-foreground/70" />
                   </div>
                   <h3 className="font-semibold text-sm mb-2">{feature.title}</h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">{feature.description}</p>

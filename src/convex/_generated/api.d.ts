@@ -16,6 +16,7 @@ import type * as chapters from "../chapters.js";
 import type * as generate from "../generate.js";
 import type * as generation from "../generation.js";
 import type * as http from "../http.js";
+import type * as storage from "../storage.js";
 import type * as users from "../users.js";
 import type * as voices from "../voices.js";
 
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   generate: typeof generate;
   generation: typeof generation;
   http: typeof http;
+  storage: typeof storage;
   users: typeof users;
   voices: typeof voices;
 }>;

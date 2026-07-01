@@ -149,7 +149,7 @@ function BookCard({ book }: { book: { _id: Id<"books">; title: string; status: s
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-foreground/[0.04] border flex items-center justify-center shrink-0">
-                  <FileText className="w-4.5 h-4.5 text-foreground/70" />
+                  <FileText className="w-4 h-4 text-foreground/70" />
                 </div>
                 <div className="min-w-0">
                   <CardTitle className="text-sm font-semibold truncate max-w-[200px]">{book.title}</CardTitle>

@@ -167,13 +167,14 @@ export const startGeneration = action({
       });
 
       // Generate first chapter immediately
-      const firstChapter = await ctx.runQuery(internal.chapters.getByBookAndNumber, {
+      const chaptersList = await ctx.runQuery(api.chapters.listByBook, {
         bookId: args.bookId,
-        chapterNumber: 1,
       });
 
+      const firstChapter = chaptersList?.[0];
+
       if (firstChapter) {
-        await ctx.scheduler.runAfter(0, internal.generate.generateChapter, {
+        await ctx.scheduler.runAfter(0, api.generate.generateChapter, {
           chapterId: firstChapter._id,
           voiceId: book.voiceId ?? "default",
           provider: book.ttsProvider ?? "elevenlabs",
@@ -200,12 +201,13 @@ export const generateRemainingChapters = action({
     if (!book) throw new Error("Book not found");
     if (!book.voiceId || !book.ttsProvider) return;
 
-    const pendingChapters = await ctx.runQuery(internal.chapters.getPendingChapters, { bookId: args.bookId });
+    const pendingChapters = await ctx.runQuery(api.chapters.listByBook, { bookId: args.bookId });
+    const pendingOnes = pendingChapters.filter((c: any) => c.generationStatus === "pending" || c.generationStatus === "error");
 
-    for (const chapter of pendingChapters) {
+    for (const chapter of pendingOnes) {
       await ctx.runMutation(internal.chapters.setGenerating, { chapterId: chapter._id });
       try {
-        await ctx.scheduler.runAfter(0, internal.generate.generateChapter, {
+        await ctx.scheduler.runAfter(0, api.generate.generateChapter, {
           chapterId: chapter._id,
           voiceId: book.voiceId,
           provider: book.ttsProvider,

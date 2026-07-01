@@ -2,7 +2,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,13 +14,13 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
-import { useQuery, useMutation } from "convex/react";
+
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useParams, useNavigate } from "react-router";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   ArrowLeft,
   Headphones,
@@ -332,8 +332,8 @@ function ContentSettings({ book }: { book: BookDoc }) {
 
 function PlaybackSettings({ book }: { book: BookDoc }) {
   const updateSettings = useMutation(api.books.updateSettings);
-  const startGeneration = useMutation(api.generate.startGeneration);
-  const generateRemaining = useMutation(api.generate.generateRemainingChapters);
+  const startGeneration = useAction(api.generate.startGeneration);
+  const generateRemaining = useAction(api.generate.generateRemainingChapters);
 
   const handleChange = (key: string, value: unknown) => {
     updateSettings({ bookId: book._id, [key]: value });
@@ -525,11 +525,13 @@ export default function Reader() {
   const [showSettings, setShowSettings] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const isPlayingRef = useRef(false);
 
   const currentChapter = chapters?.[currentChapterIndex];
-  const audioUrl = currentChapter?.audioStorageId
-    ? `/api/storage/${currentChapter.audioStorageId}`
-    : null;
+  const audioUrl = useQuery(
+    api.storage.getUrl,
+    currentChapter?.audioStorageId ? { storageId: currentChapter.audioStorageId } : "skip",
+  );
 
   useEffect(() => {
     if (book?.lastListenedChapter && chapters) {
@@ -549,30 +551,34 @@ export default function Reader() {
   }, []);
 
   const handlePlayPause = useCallback(() => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      audio.play().catch(() => {});
+      setIsPlaying(true);
+      isPlayingRef.current = true;
     } else {
-      audioRef.current.play().catch(() => {});
+      audio.pause();
+      setIsPlaying(false);
+      isPlayingRef.current = false;
     }
-    setIsPlaying(!isPlaying);
-  }, [isPlaying]);
+  }, []);
 
   const handleSkipForward = useCallback(() => {
     if (chapters && currentChapterIndex < chapters.length - 1) {
-      setCurrentChapterIndex(currentChapterIndex + 1);
+      setCurrentChapterIndex((prev) => prev + 1);
       setCurrentTime(0);
       setIsPlaying(false);
+      isPlayingRef.current = false;
     }
   }, [chapters, currentChapterIndex]);
 
   const handleSkipBack = useCallback(() => {
-    if (currentChapterIndex > 0) {
-      setCurrentChapterIndex(currentChapterIndex - 1);
-      setCurrentTime(0);
-      setIsPlaying(false);
-    }
-  }, [currentChapterIndex]);
+    setCurrentChapterIndex((prev) => Math.max(0, prev - 1));
+    setCurrentTime(0);
+    setIsPlaying(false);
+    isPlayingRef.current = false;
+  }, []);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -656,7 +662,7 @@ export default function Reader() {
                         currentVoiceId={book.voiceId}
                         currentProvider={book.ttsProvider}
                         onSelect={(voiceId, provider) => {
-                          updateSettings({ bookId: book._id, voiceId, ttsProvider: provider as any });
+                          bookSettings({ bookId: book._id, voiceId, ttsProvider: provider as any });
                         }}
                       />
                     </div>
@@ -690,10 +696,11 @@ export default function Reader() {
                   <p key={i}>{p}</p>
                 ))}
               </div>
-              {currentChapter.audioStorageId && (
+              {audioUrl && (
                 <audio
                   ref={audioRef}
-                  src={`/api/storage/${currentChapter.audioStorageId}`}
+                  key={audioUrl}
+                  src={audioUrl}
                   onTimeUpdate={() => {
                     if (audioRef.current) {
                       setCurrentTime(audioRef.current.currentTime);
@@ -706,7 +713,11 @@ export default function Reader() {
                   }}
                   onEnded={() => {
                     setIsPlaying(false);
-                    handleSkipForward();
+                    isPlayingRef.current = false;
+                    if (chapters && currentChapterIndex < chapters.length - 1) {
+                      setCurrentChapterIndex((prev) => prev + 1);
+                      setCurrentTime(0);
+                    }
                   }}
                   preload="auto"
                 />

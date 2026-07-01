@@ -63,7 +63,7 @@ export const createBatch = internalMutation({
 export const updateAudio = internalMutation({
   args: {
     chapterId: v.id("chapters"),
-    audioStorageId: v.id("_storage"),
+    audioStorageId: v.optional(v.id("_storage")),
     audioDuration: v.optional(v.number()),
     generationStatus: v.union(
       v.literal("pending"),
